@@ -14,31 +14,30 @@
 
 # 特点
 
-1. 使用 Python + curl_cffi + PyCryptodome 的组合进行开发，使用 curl_cffi 模拟真实浏览器TLS指纹，避免被WAF识别
+1. 使用 Python + wreq-python + PyCryptodome 的组合进行开发，使用 wreq-python 模拟真实浏览器TLS指纹，避免被WAF识别
 2. 预置了常见的加密/哈希算法（DES、AES、RSA、MD5、HMAC、Base64），登录时直接调用即可实现用户名密码加密
 3. 支持使用 QuickJS 执行JS脚本，无需依赖浏览器环境，轻量高效
 4. 内置 ONNX 验证码识别模块，支持 `dddd` 通用识别和 `ruoyi`（若依）专用识别，可识别字节图片与内联Base64图片
 5. 支持多线程并发操作，以及设置每次发起请求前延迟固定时间
-6. 支持两种爆破模式：`clusterbomb`（乘积模式）和 `pitchfork`（草叉模式），与 Burpsuite / Yakit 对齐
 7. 每次请求自动携带随机 X-Forwarded-For 等伪造IP头
 8. 内置重试机制，遇到502等服务器错误可自动重试
-9. 连续异常超过10次自动退出，避免无意义请求
+9. 连续异常超过20次自动退出，避免无意义请求
 
 # 项目结构
 
 ```
-main.py              # 主程序入口，包含全局配置、爆破函数和线程池调度
+webbrute.py          # 主程序入口，包含全局配置、爆破函数和线程池调度
 requirements.txt     # Python依赖库
 utils/
     crypto.py        # 加密/哈希工具（DES、AES、RSA、MD5、HMAC、Base64）
-    captchadet/
-        __init__.py  # 验证码识别模块导出
-        ocr.py       # 验证码识别统一封装（DdddOcr / RuoyiOcr）
-        dddd/        # 通用验证码模型与推理逻辑
-        ruoyi/       # 若依验证码模型与推理逻辑
     execjs.py        # JS脚本执行模块（基于QuickJS）
+captchadet/
+    captchadet.py    # 验证码识别统一封装（DdddOcr / RuoyiOcr）
+    dddd/            # 通用验证码模型与推理逻辑
+    ruoyi/           # 若依验证码模型与推理逻辑
 test/
     signature.js     # JS脚本示例文件
+    image.png        # 验证码识别示例文件
 ```
 
 # 使用教程
@@ -52,11 +51,10 @@ pip install -r requirements.txt
 requirements.txt 中包含以下依赖：
 
 ```
-curl_cffi       # HTTP请求库，支持浏览器TLS指纹模拟
+wreq-python     # HTTP请求库，支持浏览器TLS指纹模拟
 lxml            # HTML解析，用于XPath提取CSRF Token等
 pycryptodome    # 加密算法库
 opencv-python   # 图像预处理
-numpy           # 数值计算
 onnxruntime     # ONNX模型推理
 ```
 
@@ -66,36 +64,33 @@ onnxruntime     # ONNX模型推理
 
 ## 二、设置密码字典
 
-定位到 `main.py` 中的 `configs` 全局配置字典，`account_list` 储存的是内置的用户名和密码列表，可以直接填入一些自定义的账号或密码：
+定位到 `webbrute.py` 中的 `configs` 全局配置字典，`username_list / password_list` 储存的是内置的用户名和密码列表，可以直接填入一些自定义的账号或密码，`username_file_path / password_file_path` 指定用户名字典文件和密码字典文件的路径，留空则不读取对应的字典文件：：
 
 ```python
-"account_list": {
-    "username": [ "admin" ],
-    "password": [ "123456" ]
+"usernames": {
+    "username_list": [
+        "admin"
+    ],
+    "username_file_path": [
+        "/path/to/username.txt"
+    ]
 },
+
+"passwords": {
+    "password_list": [
+        "123456"
+    ],
+    "password_file_path": [
+        "/path/to/password.txt"
+    ]
+}
 ```
-
-`account_file` 指定用户名字典文件和密码字典文件的路径，留空则不读取对应的字典文件：
-
-```python
-"account_file": {
-    "username": r"", # /path/to/username.txt
-    "password": r""  # /path/to/password.txt
-},
-```
-
-> 字典文件中的内容以行为单位读取，读取后追加到 `account_list` 中对应的列表
 
 ## 三、设置全局配置
 
 `configs` 字典中的其他配置项：
 
 ```python
-# 爆破模式
-#   pitchfork = 草叉模式（Yakit） / Pitchfork（Burpsuite）
-#   clusterbomb = 乘积模式（Yakit） / ClusterBomb（Burpsuite）
-"mode": "clusterbomb",
-
 # 超时时间，单位秒
 "timeout": 10,
 
@@ -107,18 +102,13 @@ onnxruntime     # ONNX模型推理
 
 # 密码爆破日志
 "logfile": {
-    "found": "found.txt",        # 正常的爆破日志
+    "history": "history.txt",     # 爆破历史文件，里面储存了爆破过的账号密码，用于防止重复爆破
+    "found": "found.txt",         # 正常的爆破日志
     "exception": "exception.txt", # 发生异常时的日志
 },
 
-# 是否使用代理
-"use_proxy": False,
-
 # 设置代理
-"proxies": {
-    "http": "http://127.0.0.1:8080",
-    "https": "http://127.0.0.1:8080"
-},
+"proxy": "http://admin:123456@127.0.0.1:8080", # 代理值为空字符串、None则表示不使用代理
 
 # 自定义headers
 "headers": {
@@ -128,14 +118,9 @@ onnxruntime     # ONNX模型推理
 
 # 自定义cookies
 "cookies": {
-    # "JSESSIONID": ""
+    "JSESSIONID": "123456"
 }
 ```
-
-**爆破模式说明：**
-
-+ `clusterbomb`（乘积模式）：对用户名列表和密码列表做笛卡尔积，尝试所有组合，总请求数 = 用户名数 × 密码数
-+ `pitchfork`（草叉模式）：用户名和密码按位置一一对应，总请求数 = min(用户名数, 密码数)
 
 ## 四、加密算法调用（可选）
 
@@ -177,13 +162,13 @@ print(signature)
 
 ## 六、验证码识别（可选）
 
-验证码识别已内置在 `utils/captchadet` 中，提供两个后端：
+验证码识别已内置在 `captchadet` 中，提供两个后端：
 
 + `captchadet.DdddOcr()`：通用验证码识别
 + `captchadet.RuoyiOcr()`：若依框架验证码识别（新增）
 
 ```python
-from utils import captchadet
+from captchadet import captchadet
 
 # 二选一：通用识别 or 若依识别
 ocr = captchadet.DdddOcr()
@@ -200,13 +185,13 @@ captcha = ocr.identify_image_inline(response.text)
 captcha = ocr.identify_image_filepath("test/captcha.png")
 ```
 
-> 建议根据目标站点选择后端：普通站点优先 `DdddOcr`，若依站点优先 `RuoyiOcr`
+> 建议根据目标站点选择后端：普通站点优先使用 `DdddOcr`，若依站点优先使用 `RuoyiOcr`
 
 > 在涉及到验证码识别时不建议使用多线程，应将 `configs["threads"]` 设置为 1
 
 ## 七、编写爆破函数
 
-上面的步骤都是可选的准备环节，核心要编写的是 `main.py` 中的 `run` 函数，它负责发起单次登录操作：
+上面的步骤都是可选的准备环节，核心要编写的是 `webbrute.py` 中的 `run` 函数，它负责发起单次登录操作：
 
 ```python
 def run(username, password):
@@ -223,21 +208,19 @@ def run(username, password):
 
 每次请求会自动生成随机IP并添加到 X-Forwarded-For、X-Real-IP 等请求头中，无需手动处理。
 
-**2. 使用 curl_cffi 发起请求**
+**2. 使用 wreq-python 发起请求**
 
 ```python
-session = requests.Session(impersonate="firefox133")
+client = Client(emulation=Emulation.Chrome153)
 
 data = {
     "username": username,
     "password": password
 }
-response = session.post(url + "/login.html",
-    json=data, cookies=cookies, headers=headers, proxies=proxies,
-    verify=False, allow_redirects=False, timeout=configs["timeout"])
+response = client.post(url, json=data, cookies=cookies, headers=headers, proxy=proxy, timeout=timeout, verify=False)
 ```
 
-> curl_cffi 的 `impersonate` 参数可模拟真实浏览器的TLS指纹，可选值如 `"firefox133"`、`"chrome131"` 等
+> wreq-python 的 `emulation` 参数可模拟真实浏览器的TLS指纹
 
 **3. 内置重试机制**
 
@@ -248,7 +231,7 @@ error = {}
 error["502"] = 0
 while True:
     # ... 发起请求 ...
-    if response.status_code == 502:
+    if response.status == 502:
         error["502"] += 1
         if error["502"] > 5:
             raise Exception("Server internal error")
@@ -262,16 +245,16 @@ while True:
 一般情况下可以知道登录失败会返回什么报文，而不知道登录成功会返回什么报文，因此建议在 `if` / `elif` 中编写失败的判断条件，用 `else` 来处理登录成功的情况：
 
 ```python
-if "用户不存在" in response.text:    # 失败条件1
+if "用户不存在" in response.text():    # 失败条件1
     return
-elif "密码错误" in response.text:    # 失败条件2
+elif "密码错误" in response.text():    # 失败条件2
     return
 else:                                # 成功
     info_message(f"[++] Found {username}:{password} ...")
     return
 ```
 
-> 常见的判断方式还有：`response.status_code == 401`、`len(response.content) == 100`、检查 302 跳转的 Location 等，根据实际场景调整即可
+> 常见的判断方式还有：`response.status == 401`、`len(response.text()) == 100`、检查 302 跳转的 Location 等，根据实际场景调整即可
 
 **5. XPath提取CSRF Token**
 
@@ -288,17 +271,63 @@ csrftoken = html.xpath('//input[@type="hidden" and @id="csrf"]/@value')[0]
 编写完 `run` 函数后，即可运行：
 
 ```
-python main.py
+python webbrute.py
 ```
 
 ## 八、线程池调度
 
-+ `main.py` 底部的线程池调度和日志输出代码，建议保持默认即可
++ `webbrute.py` 底部的线程池调度和日志输出代码，建议保持默认即可
 
 + 线程池支持 `Ctrl+C` 键盘中断，可随时停止程序运行
 
-+ 工具每隔10分钟以百分比形式汇报一次进度，方便预估运行时间
++ 工具每隔5分钟以百分比形式汇报一次进度，方便预估运行时间
 
 + 每个线程运行期间如果遭遇异常，会累加异常计数；如果下一个线程能正常完成请求，异常计数归零；连续异常累计超过10次时程序自动退出，避免无意义的请求
 
 + 成功找到的密码会记录在 `found.txt` 文件里；遭遇异常的密码会记录在 `exception.txt` 中，方便后续重新尝试
+
+# 代码用例
+
+加密密码
+
+```
+from utils import crypto
+
+password = crypto.DES_encrypt("123456")
+password = crypto.AES_encrypt("123456")
+password = crypto.RSA_encrypt("123456")
+password = crypto.MD5_hash("123456")
+password = crypto.Base64_encode("123456")
+```
+
+验证码识别
+
+```
+from captchadet import captchadet
+
+ocr = captchadet.DdddOcr() # or captchadet.RuoyiOcr()
+# response = client.get("https://example.com/login/vcode")
+captcha = ocr.identify_image_bytes(bytes(response.bytes()))
+captcha = ocr.identify_image_inline(response.text()) # text = data:image/png;base64,iVBOR...
+print(captcha)
+```
+
+使用XPath读取CSRF Token
+
+```
+from lxml import etree
+
+response = client.get("https://example.com/login")
+html = etree.HTML(response.text, etree.HTMLParser())
+csrftoken = html.xpath('//input[@type="hidden" and @id="csrf"]/@value')[0]
+print(csrftoken)
+```
+
+使用QuickJS执行JS
+
+```
+from utils import execjs
+
+signature = execjs.signature("123456") # 这里需要修改execjs中的功能函数，自行定制所需功能
+print(signature)
+```

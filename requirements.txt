@@ -1,6 +1,5 @@
-curl_cffi
+wreq
 lxml
 pycryptodome
 opencv-python
-numpy
 onnxruntime
